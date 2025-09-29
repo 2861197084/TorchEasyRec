@@ -94,25 +94,26 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--pred-path",
         type=Path,
-        required=True,
+        # required=True,
+        default=Path("outputs/stage2_deepfm_v6/predict/part-0.parquet"),
         help="预测结果 parquet 文件路径",
     )
     parser.add_argument(
         "--output",
         type=Path,
-        required=True,
+        default=Path("outputs/submission.txt"),
         help="输出的提交 txt 路径",
     )
     parser.add_argument(
         "--threshold",
         type=float,
-        default=0.02,
+        default=0.018,
         help="概率阈值（<=0 表示关闭），默认 0.02",
     )
     parser.add_argument(
         "--topk",
         type=int,
-        default=10,
+        default=0,
         help="每个用户保留的 TopK（<=0 表示关闭），默认 10",
     )
     parser.add_argument(
@@ -124,7 +125,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--max-entries-per-user",
         type=int,
-        default=30,
+        default=0,
         help="每个用户最多保留的条数（<=0 表示不限制），默认 200",
     )
     parser.add_argument(

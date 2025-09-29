@@ -58,7 +58,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("data/processed/features-7d"),
+        default=Path("data/processed/features-14d"),
         help="Directory to store aggregated feature parquet files.",
     )
     parser.add_argument(
@@ -78,7 +78,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--window",
         type=int,
-        default=7,
+        default=14,
         help="Rolling window length in days (history strictly before target day).",
     )
     parser.add_argument(
@@ -92,6 +92,30 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=None,
         help="DuckDB database文件路径或目录，缺省为内存模式。若指定目录将自动创建 duckdb.db。",
+    )
+    parser.add_argument(
+        "--duckdb-temp-directory",
+        type=Path,
+        default=None,
+        help="DuckDB 临时目录，若未指定则使用默认临时路径。建议指定到大容量磁盘。",
+    )
+    parser.add_argument(
+        "--duckdb-max-temp-size",
+        type=str,
+        default=None,
+        help="DuckDB PRAGMA max_temp_directory_size 的值，例如 '0'、'120GB'。",
+    )
+    parser.add_argument(
+        "--duckdb-memory-limit",
+        type=str,
+        default=None,
+        help="DuckDB PRAGMA memory_limit 的值，例如 '60GB'。",
+    )
+    parser.add_argument(
+        "--threads",
+        type=int,
+        default=None,
+        help="DuckDB 并行线程数，默认使用 CPU 核心数。",
     )
     parser.add_argument(
         "--no-progress",
@@ -302,8 +326,28 @@ def main() -> None:
         conn = duckdb.connect(database=str(db_path))
     else:
         conn = duckdb.connect(database=":memory:")
-    threads = os.cpu_count() or 1
+
+    threads = args.threads or (os.cpu_count() or 1)
     conn.execute(f"PRAGMA threads={threads}")
+    conn.execute("PRAGMA preserve_insertion_order=false")
+
+    if args.duckdb_temp_directory:
+        temp_dir = args.duckdb_temp_directory.resolve()
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        conn.execute(f"PRAGMA temp_directory='{str(temp_dir).replace("'", "''")}'")
+        LOGGER.info("DuckDB temp_directory set to %s", temp_dir)
+
+    if args.duckdb_max_temp_size:
+        conn.execute(f"PRAGMA max_temp_directory_size='{args.duckdb_max_temp_size}'")
+        LOGGER.info(
+            "DuckDB max_temp_directory_size set to %s",
+            args.duckdb_max_temp_size,
+        )
+
+    if args.duckdb_memory_limit:
+        conn.execute(f"PRAGMA memory_limit='{args.duckdb_memory_limit}'")
+        LOGGER.info("DuckDB memory_limit set to %s", args.duckdb_memory_limit)
+
     if SHOW_PROGRESS:
         conn.execute("PRAGMA progress_bar_time=1.0")
 
