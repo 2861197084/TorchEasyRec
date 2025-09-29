@@ -58,19 +58,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("data/processed/features-db"),
+        default=Path("data/processed/features-7d"),
         help="Directory to store aggregated feature parquet files.",
     )
     parser.add_argument(
         "--start-day",
         type=str,
-        required=True,
+        # required=True,
+        default="20141125",
         help="First day (inclusive) to generate features, format YYYYMMDD.",
     )
     parser.add_argument(
         "--end-day",
         type=str,
-        required=True,
+        # required=True,
+        default="20141217",
         help="Last day (inclusive) to generate features, format YYYYMMDD.",
     )
     parser.add_argument(

@@ -112,8 +112,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--topk",
         type=int,
-        default=20,
-        help="每个用户保留的 TopK（<=0 表示关闭），默认 200",
+        default=10,
+        help="每个用户保留的 TopK（<=0 表示关闭），默认 10",
     )
     parser.add_argument(
         "--min-prob",
