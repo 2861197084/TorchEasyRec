@@ -1,0 +1,3 @@
+date,stage,data_range,features,model,params,precision,recall,f1,notes
+2025-09-29,Stage2,20141118-20141218,features_duckdb_v1,DeepFM,top5 submit,0.0127,0.3173,0.0244,Top5 submit baseline
+2025-09-29,Stage2,20141118-20141218,features_duckdb_v1,DeepFM,threshold>=0.02,0.0273,0.2752,0.0497,offline eval best

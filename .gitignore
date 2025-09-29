@@ -40,3 +40,13 @@ docs/source/intro.md
 docs/source/proto.html
 
 .vscode/
+.cursor/
+
+# Data
+data/
+logs/
+*.log
+*.parquets
+*.txt
+outputs/
+models/
