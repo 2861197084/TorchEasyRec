@@ -98,9 +98,9 @@ def evaluate_predictions(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="离线 TopK/F1 评估脚本")
     parser.add_argument(
-        "--pred-path", type=Path, required=True, help="预测结果 parquet"
+        "--pred-path", type=Path, default=Path("outputs/stage2_deepfm_v7/predict/part-0.parquet"), help="预测结果 parquet"
     )
-    parser.add_argument("--label-path", type=Path, required=True, help="验证集 parquet")
+    parser.add_argument("--label-path", type=Path, default=Path("data/processed/20141218_next_eval.parquet"), help="验证集 parquet")
     parser.add_argument(
         "--topk-list",
         type=int,

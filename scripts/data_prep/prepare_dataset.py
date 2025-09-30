@@ -33,14 +33,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--features-dir",
         type=Path,
-        default=Path("data/processed/features_duckdb"),
-        help="目录：`generate_features_duckdb.py` 输出的 user/item 特征集合。",
+        default=Path("data/processed/features-7d"),
+        help="目录：`generate_features.py` 输出的 user/item 特征集合。",
     )
     parser.add_argument(
         "--behavior-dir",
         type=Path,
         default=Path("data/processed/raw_behavior"),
         help="目录：`convert_to_parquet.py` 输出的行为日志分区。",
+    )
+    parser.add_argument(
+        "--item-subset-path",
+        type=Path,
+        default='data/processed/raw_item/items.parquet',
+        help="商品子集 Parquet/CSV 路径；缺省时自动读取 data/processed/raw_item/items.parquet（若存在）。",
     )
     parser.add_argument(
         "--output-dir",
@@ -167,6 +173,8 @@ def build_dataset_query(
     features_dir: Path,
     positive_behavior: int | None,
     label_days: Sequence[str] | None,
+    *,
+    item_subset_scan: str | None = None,
 ) -> str:
     if not days:
         raise ValueError("days must not be empty")
@@ -178,32 +186,40 @@ def build_dataset_query(
     final_label_select = "NULL AS is_buy"
     next_buy_cte = ""
     next_buy_join = ""
+    subset_cte = ""
+    subset_join = ""
+    subset_filter = ""
+    if item_subset_scan is not None:
+        subset_cte = f"item_subset AS (\n    SELECT DISTINCT item_id FROM {item_subset_scan}\n)"
+        subset_join = "\nJOIN item_subset s ON s.item_id = r.item_id"
+        subset_filter = "\n      AND item_id IN (SELECT item_id FROM item_subset)"
     if positive_behavior is not None and label_days is not None:
         label_day_list = ",".join(f"'{day}'" for day in label_days)
-        next_buy_cte = f""",\nnext_buy AS (\n    SELECT\n        user_id,\n        item_id,\n        strftime('%Y%m%d', strptime(CAST(event_day AS VARCHAR), '%Y%m%d') - INTERVAL 1 DAY) AS prev_day,\n        1 AS is_buy\n    FROM read_parquet('{behavior_glob}')\n    WHERE event_day IN ({label_day_list})\n      AND behavior_type = {positive_behavior}\n    GROUP BY user_id, item_id, prev_day\n)\n"""
+        next_buy_filter = subset_filter if item_subset_scan is not None else ""
+        next_buy_cte = (
+            f"""next_buy AS (\n    SELECT\n        user_id,\n        item_id,\n        strftime('%Y%m%d', strptime(CAST(event_day AS VARCHAR), '%Y%m%d') - INTERVAL 1 DAY) AS prev_day,\n        1 AS is_buy\n    FROM read_parquet('{behavior_glob}')\n    WHERE event_day IN ({label_day_list})\n      AND behavior_type = {positive_behavior}{next_buy_filter}\n    GROUP BY user_id, item_id, prev_day\n)"""
+        )
         final_label_select = "COALESCE(nb.is_buy, 0) AS is_buy"
         next_buy_join = "LEFT JOIN next_buy nb ON nb.prev_day = r.event_day AND nb.user_id = r.user_id AND nb.item_id = r.item_id"
     elif positive_behavior is not None and label_days is None:
         final_label_select = f"CASE WHEN behavior_type = {positive_behavior} THEN 1 ELSE 0 END AS is_buy"
 
+    cte_clauses = []
+    if subset_cte:
+        cte_clauses.append(subset_cte)
+    raw_clause = f"raw AS (\n    SELECT\n        user_id,\n        item_id,\n        behavior_type,\n        user_geohash,\n        item_category,\n        CAST(event_day AS VARCHAR) AS event_day,\n        event_hour,\n        time\n    FROM read_parquet('{behavior_glob}')\n    WHERE event_day IN ({day_list}){subset_filter}\n)"
+    cte_clauses.append(raw_clause)
+    if next_buy_cte:
+        # next_buy_cte already contains leading comma/newline; remove them for consistency
+        next_buy_clause = next_buy_cte.strip()[1:].strip() if next_buy_cte.startswith(",") else next_buy_cte.strip()
+        cte_clauses.append(next_buy_clause)
+    cte_clauses.append(f"user_feat AS (\n    {user_union}\n)".strip())
+    cte_clauses.append(f"item_feat AS (\n    {item_union}\n)".strip())
+
+    cte_sql = ",\n".join(cte_clauses)
+
     return f"""
-WITH raw AS (
-    SELECT
-        user_id,
-        item_id,
-        behavior_type,
-        user_geohash,
-        item_category,
-        CAST(event_day AS VARCHAR) AS event_day,
-        event_hour,
-        time
-    FROM read_parquet('{behavior_glob}')
-    WHERE event_day IN ({day_list})
-){next_buy_cte}, user_feat AS (
-    {user_union}
-), item_feat AS (
-    {item_union}
-)
+WITH {cte_sql}
 SELECT
     r.user_id,
     r.item_id,
@@ -222,7 +238,7 @@ SELECT
     it.item_cart_7d,
     it.item_buy_7d,
     {final_label_select}
-FROM raw r
+FROM raw r{subset_join}
 LEFT JOIN user_feat uf
     ON uf.event_day = r.event_day AND uf.user_id = r.user_id
 LEFT JOIN item_feat it
@@ -272,12 +288,30 @@ def main() -> None:
     train_label_end = (datetime.strptime(args.train_end_day, DATE_FMT) + timedelta(days=1)).strftime(DATE_FMT)
     train_label_days = [day for day in all_days if args.train_start_day <= day <= train_label_end]
 
+    item_subset_scan: str | None = None
+    subset_path = args.item_subset_path
+    if subset_path is None:
+        default_subset = Path("data/processed/raw_item/items.parquet")
+        if default_subset.exists():
+            subset_path = default_subset
+    if subset_path is not None:
+        real_path = subset_path.resolve()
+        escaped = str(real_path).replace("'", "''")
+        if real_path.suffix.lower() == ".parquet":
+            item_subset_scan = f"read_parquet('{escaped}')"
+        else:
+            item_subset_scan = f"read_csv_auto('{escaped}')"
+        LOGGER.info("商品子集过滤启用：%s", real_path)
+    else:
+        LOGGER.warning("未提供商品子集文件，train/eval/predict 将包含全集商品。")
+
     train_query = build_dataset_query(
         train_days,
         args.behavior_dir,
         args.features_dir,
         args.positive_behavior_type,
         train_label_days,
+        item_subset_scan=item_subset_scan,
     )
     eval_query = build_dataset_query(
         [args.eval_day],
@@ -285,6 +319,7 @@ def main() -> None:
         args.features_dir,
         args.positive_behavior_type,
         [eval_label_day],
+        item_subset_scan=item_subset_scan,
     )
     predict_query = build_dataset_query(
         [args.predict_day],
@@ -292,6 +327,7 @@ def main() -> None:
         args.features_dir,
         None,
         None,
+        item_subset_scan=item_subset_scan,
     )
 
     train_output = args.output_dir / f"{args.output_prefix}_train.parquet"

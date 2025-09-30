@@ -58,7 +58,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("data/processed/features-14d"),
+        default=Path("data/processed/features-7d"),
         help="Directory to store aggregated feature parquet files.",
     )
     parser.add_argument(
@@ -72,13 +72,13 @@ def parse_args() -> argparse.Namespace:
         "--end-day",
         type=str,
         # required=True,
-        default="20141217",
+        default="20141218",
         help="Last day (inclusive) to generate features, format YYYYMMDD.",
     )
     parser.add_argument(
         "--window",
         type=int,
-        default=14,
+        default=7,
         help="Rolling window length in days (history strictly before target day).",
     )
     parser.add_argument(
@@ -108,7 +108,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--duckdb-memory-limit",
         type=str,
-        default=None,
+        default='60GB',
         help="DuckDB PRAGMA memory_limit 的值，例如 '60GB'。",
     )
     parser.add_argument(
@@ -116,6 +116,12 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=None,
         help="DuckDB 并行线程数，默认使用 CPU 核心数。",
+    )
+    parser.add_argument(
+        "--item-parquet",
+        type=Path,
+        default=Path("data/processed/raw_item/items.parquet"),
+        help="商品子集 Parquet/CSV 路径；若未指定且默认位置存在，将自动启用过滤。",
     )
     parser.add_argument(
         "--no-progress",
@@ -194,33 +200,44 @@ def build_entity_query(
     end_day: str,
     valid_days: list[str],
     window: int,
+    item_subset_scan: str | None,
 ) -> str:
     if not valid_days:
         raise ValueError("valid_days must not be empty")
 
     values_clause = ", ".join(f"('{day}')" for day in valid_days)
 
+    subset_cte = ""
+    subset_join = ""
+    if item_subset_scan is not None:
+        subset_cte = f",\nitem_subset AS (\n    SELECT DISTINCT item_id FROM {item_subset_scan}\n)\n"
+        subset_join = "\n    JOIN item_subset s ON s.item_id = logs.entity_id"
+
     return f"""
 WITH target(day_str, target_dt) AS (
     SELECT day_str, strptime(day_str, '%Y%m%d')::DATE AS target_dt
     FROM (VALUES {values_clause}) AS v(day_str)
-), logs AS (
+){subset_cte}, logs AS (
     SELECT
         strptime(CAST(event_day AS VARCHAR), '%Y%m%d')::DATE AS event_dt,
         {entity_column} AS entity_id,
         behavior_type
     FROM read_parquet('{parquet_glob}')
     WHERE event_day BETWEEN '{history_start}' AND '{end_day}'
+), filtered_logs AS (
+    SELECT event_dt, entity_id, behavior_type
+    FROM logs
+{subset_join}
 ), window_log AS (
     SELECT
         t.day_str,
-        l.entity_id,
-        l.behavior_type,
+        fl.entity_id,
+        fl.behavior_type,
         COUNT(*)::BIGINT AS cnt
     FROM target t
-    JOIN logs l
-      ON l.event_dt >= t.target_dt - INTERVAL '{window}' DAY
-     AND l.event_dt < t.target_dt
+    JOIN filtered_logs fl
+      ON fl.event_dt >= t.target_dt - INTERVAL '{window}' DAY
+     AND fl.event_dt < t.target_dt
     GROUP BY 1, 2, 3
 ), entity_pool AS (
     SELECT DISTINCT day_str, entity_id FROM window_log
@@ -250,6 +267,7 @@ def fetch_entity_features(
     end_day: str,
     valid_days: list[str],
     window: int,
+    item_subset_scan: str | None,
 ) -> pd.DataFrame:
     query = build_entity_query(
         entity_column=entity_column,
@@ -259,6 +277,7 @@ def fetch_entity_features(
         end_day=end_day,
         valid_days=valid_days,
         window=window,
+        item_subset_scan=item_subset_scan,
     )
     LOGGER.info("Executing DuckDB query for %s", entity_column)
     LOGGER.debug("DuckDB SQL for %s:\n%s", entity_column, query)
@@ -351,6 +370,23 @@ def main() -> None:
     if SHOW_PROGRESS:
         conn.execute("PRAGMA progress_bar_time=1.0")
 
+    item_subset_scan: str | None = None
+    subset_path = args.item_parquet
+    if subset_path is None:
+        default_subset = Path("data/processed/raw_item/items.parquet")
+        if default_subset.exists():
+            subset_path = default_subset
+    if subset_path is not None:
+        real_path = subset_path.resolve()
+        escaped = str(real_path).replace("'", "''")
+        if real_path.suffix.lower() == ".parquet":
+            item_subset_scan = f"read_parquet('{escaped}')"
+        else:
+            item_subset_scan = f"read_csv_auto('{escaped}')"
+        LOGGER.info("商品子集过滤启用：%s", real_path)
+    else:
+        LOGGER.warning("未找到商品子集文件，生成的特征将包含全集商品。")
+
     tasks = [
         ("user_id", "user_id", "user_features"),
         ("item_id", "item_id", "item_features"),
@@ -373,6 +409,7 @@ def main() -> None:
             end_day=args.end_day,
             valid_days=valid_days,
             window=args.window,
+            item_subset_scan=item_subset_scan,
         )
         results[prefix] = df
 

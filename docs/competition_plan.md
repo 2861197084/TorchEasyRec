@@ -7,7 +7,7 @@
    - 统计 `rawdata` 下用户行为 A/B 分片与商品子集文件的规模、字段完整性。
    - 设计日期与用户双重切分策略，生成训练集、验证集与预测日标签。
 2. **特征工程与数据预处理**
-   - 编写 `convert_to_parquet.py`、`generate_features.py`、`prepare_dataset.py` 三阶段脚本，将原始 TXT 转成分区 Parquet、聚合特征并生成训练/评估/预测样本（详见 `scripts/data_prep/README.md`）。
+   - 编写 `convert_to_parquet.py`、`convert_items_to_parquet.py`（新增）、`generate_features.py`、`prepare_dataset.py` 四阶段脚本，将原始 TXT 转成分区 Parquet、聚合特征并生成训练/评估/预测样本（详见 `scripts/data_prep/README.md`）。
    - 构建用户/商品统计、地理偏好、序列行为等特征，确保字段定义与 TorchEasyRec `IdFeature`、`RawFeature`、`SequenceFeature` 规范一致 [^1]。
 3. **模型方案与配置**
    - 初始排序模型选用 Wide&Deep，后续评估 DIN、DeepFM 等；召回阶段酌情引入 DSSM/MIND。
@@ -26,21 +26,21 @@
 
 ## 阶段性配置方案（逐步补充）
 
-- **2025-09-30｜Stage2 DeepFM v6（新调参方案）**
-  - 训练命令（新增模型目录 `models/stage2_deepfm_v6`）：
+- **2025-09-30｜Stage2 DeepFM **
+  - 训练命令（新增模型目录 ：
 
     ```bash
     torchrun --master_addr=localhost --master_port=29511 \
       --nnodes=1 --nproc-per-node=1 --node_rank=0 \
       -m tzrec.train_eval \
       --pipeline_config_path /root/autodl-tmp/TorchEasyRec/configs/staging/stage2_deepfm_v1.config \
-      --model_dir /root/autodl-tmp/TorchEasyRec/models/stage2_deepfm_v6
+      --model_dir /root/autodl-tmp/TorchEasyRec/models/stage2_deepfm_v8
     ```
 
   - TensorBoard 监控（GPU 实例本地预览）：
 
     ```bash
-    tensorboard --logdir /root/autodl-tmp/TorchEasyRec/models/stage2_deepfm_v6 --port 6006
+    tensorboard --logdir /root/autodl-tmp/TorchEasyRec/models/stage2_deepfm_v7 --port 6006
     ```
 
   - 模型导出：
@@ -49,8 +49,9 @@
     torchrun --master_addr=localhost --master_port=29511 \
       --nnodes=1 --nproc-per-node=1 --node_rank=0 \
       -m tzrec.export \
-      --pipeline_config_path /root/autodl-tmp/TorchEasyRec/models/stage2_deepfm_v6/pipeline.config \
-      --export_dir /root/autodl-tmp/TorchEasyRec/models/stage2_deepfm_v6/export
+      --pipeline_config_path /root/autodl-tmp/TorchEasyRec/models/stage2_deepfm_v8/pipeline.config \
+      –checkpoint_path /root/autodl-tmp/TorchEasyRec/models/stage2_deepfm_v8/model.ckpt-9791 \
+      --export_dir /root/autodl-tmp/TorchEasyRec/models/stage2_deepfm_v8/export
     ```
 
   - 预测产出：
@@ -59,9 +60,9 @@
     torchrun --master_addr=localhost --master_port=29511 \
       --nnodes=1 --nproc-per-node=1 --node_rank=0 \
       -m tzrec.predict \
-      --scripted_model_path /root/autodl-tmp/TorchEasyRec/models/stage2_deepfm_v6/export \
-      --predict_input_path /root/autodl-tmp/TorchEasyRec/data/processed/20141218_next_predict.parquet \
-      --predict_output_path /root/autodl-tmp/TorchEasyRec/outputs/stage2_deepfm_v6/predict \
+      --scripted_model_path /root/autodl-tmp/TorchEasyRec/models/stage2_deepfm_v8/export \
+      --predict_input_path /root/autodl-tmp/TorchEasyRec/data/processed/20141218_predict.parquet \
+      --predict_output_path /root/autodl-tmp/TorchEasyRec/outputs/stage2_deepfm_v8/predict \
       --reserved_columns user_id,item_id
     ```
 
@@ -81,11 +82,29 @@
     ```bash
     python /root/autodl-tmp/TorchEasyRec/scripts/eval/generate_submission.py \
       --pred-path /root/autodl-tmp/TorchEasyRec/outputs/stage2_deepfm_v6/predict/part-0.parquet \
+      --item-subset-path /root/autodl-tmp/TorchEasyRec/data/processed/raw_item/items.parquet \
       --output /root/autodl-tmp/TorchEasyRec/outputs/stage2_deepfm_v6/submission_stage2_deepfm_v6.txt \
       --threshold 0.02 \
       --topk 200 \
       --max-entries-per-user 200
     ```
+## 商品子集 P 口径与数据流（重要）
+1. 将官方 `tianchi_fresh_comp_train_item_online.txt` 转换为 Parquet：
+   ```bash
+   python scripts/data_prep/convert_items_to_parquet.py \
+     --input-path /root/autodl-tmp/TorchEasyRec/tianchi_fresh_comp_train_item_online.txt
+   ```
+   输出：`data/processed/raw_item/items.parquet`
+
+2. 生成窗口特征时在 DuckDB 内按 P 过滤：
+   - `generate_features.py` 若检测到 `data/processed/raw_item/items.parquet`，会自动在窗口聚合前 `JOIN` P；也可通过 `--item-parquet` 指定路径。
+
+3. 准备数据集时按 P 过滤候选与标签：
+   - `prepare_dataset.py` 若未传 `--item-subset-path` 但检测到标准路径，会默认使用它；标签构造（次日购买）也限定在 P 内。
+
+4. 提交文件写出前再次按 P 过滤：
+   - `scripts/eval/generate_submission.py` 支持 `--item-subset-path`；若不传且已有标准路径，可直接使用该 Parquet，默认阈值 0.02。
+
 
     - 默认 `threshold=0.02`、`topk=200`、`max_entries_per_user=200`、`separator=\t`，可按需覆盖。
     - 输出文件不含表头，满足比赛提交格式要求。
