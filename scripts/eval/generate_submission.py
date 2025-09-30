@@ -90,24 +90,28 @@ def duckdb_write_submission(
     subset_join = ""
     if item_subset_parquet is not None:
         subset = escape(item_subset_parquet)
-        subset_join = f"JOIN (SELECT DISTINCT CAST(item_id AS BIGINT) AS item_id FROM read_parquet('{subset}')) s USING(item_id)"
+        subset_join = f"JOIN (SELECT DISTINCT CAST(item_id AS BIGINT) AS item_id FROM read_parquet('{subset}')) s ON s.item_id = d.item_id"
 
-    rank_clause = ""
+    per_user_condition = "dup_rank = 1"
     if per_user_limit > 0:
-        rank_clause = f"QUALIFY ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY probs DESC) <= {per_user_limit}"
+        per_user_condition += f" AND user_rank <= {per_user_limit}"
 
-    # 仅选择必要列并写出
     sql = f"""
     COPY (
-      SELECT user_id, item_id
+      SELECT d.user_id, d.item_id
       FROM (
-        SELECT user_id, item_id, CAST(probs AS DOUBLE) AS probs
+        SELECT
+          user_id,
+          item_id,
+          CAST(probs AS DOUBLE) AS probs,
+          ROW_NUMBER() OVER (PARTITION BY user_id, item_id ORDER BY probs DESC) AS dup_rank,
+          ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY probs DESC) AS user_rank
         FROM read_parquet('{pred}')
         {where_clause}
-      ) p
+      ) d
       {subset_join}
-      {rank_clause}
-      ORDER BY user_id, probs DESC
+      WHERE {per_user_condition}
+      ORDER BY d.user_id, d.probs DESC
     ) TO '{out}' (HEADER false, DELIMITER '{sep}')
     """
     conn.execute(sql)
@@ -124,13 +128,13 @@ def parse_args() -> argparse.Namespace:
         "--pred-path",
         type=Path,
         # required=True,
-        default=Path("outputs/stage2_deepfm_v8/predict/part-0.parquet"),
+        default=Path("outputs/stage2_deepfm_v10/predict/part-0.parquet"),
         help="预测结果 parquet 文件路径",
     )
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("outputs/submission.txt"),
+        default=Path("outputs/submissionv10.txt"),
         help="输出的提交 txt 路径",
     )
     parser.add_argument(

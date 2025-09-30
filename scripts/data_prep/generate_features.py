@@ -13,7 +13,7 @@
         --output-dir data/processed/features_duckdb
 
 输出与原脚本保持一致：分别生成用户、商品的历史行为计数表，列后缀
-`_{window}d` 表示滚动窗口长度。为了与 TorchEasyRec 配置对齐，所有
+`` 表示滚动窗口长度。为了与 TorchEasyRec 配置对齐，所有
 行为列均为 `int64` 类型。
 """
 
@@ -58,7 +58,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("data/processed/features-7d"),
+        default=Path("data/processed/features-14"),
         help="Directory to store aggregated feature parquet files.",
     )
     parser.add_argument(
@@ -78,7 +78,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--window",
         type=int,
-        default=7,
+        default=14,
         help="Rolling window length in days (history strictly before target day).",
     )
     parser.add_argument(
@@ -245,10 +245,10 @@ WITH target(day_str, target_dt) AS (
 SELECT
     e.day_str AS event_day,
     e.entity_id AS {entity_alias},
-    COALESCE(SUM(CASE WHEN w.behavior_type = 1 THEN w.cnt ELSE 0 END), 0)::BIGINT AS click_{window}d,
-    COALESCE(SUM(CASE WHEN w.behavior_type = 2 THEN w.cnt ELSE 0 END), 0)::BIGINT AS fav_{window}d,
-    COALESCE(SUM(CASE WHEN w.behavior_type = 3 THEN w.cnt ELSE 0 END), 0)::BIGINT AS cart_{window}d,
-    COALESCE(SUM(CASE WHEN w.behavior_type = 4 THEN w.cnt ELSE 0 END), 0)::BIGINT AS buy_{window}d
+    COALESCE(SUM(CASE WHEN w.behavior_type = 1 THEN w.cnt ELSE 0 END), 0)::BIGINT AS click,
+    COALESCE(SUM(CASE WHEN w.behavior_type = 2 THEN w.cnt ELSE 0 END), 0)::BIGINT AS fav,
+    COALESCE(SUM(CASE WHEN w.behavior_type = 3 THEN w.cnt ELSE 0 END), 0)::BIGINT AS cart,
+    COALESCE(SUM(CASE WHEN w.behavior_type = 4 THEN w.cnt ELSE 0 END), 0)::BIGINT AS buy
 FROM entity_pool e
 LEFT JOIN window_log w
   ON e.day_str = w.day_str AND e.entity_id = w.entity_id

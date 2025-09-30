@@ -31,10 +31,8 @@
 
     ```bash
     torchrun --master_addr=localhost --master_port=29511 \
-      --nnodes=1 --nproc-per-node=1 --node_rank=0 \
       -m tzrec.train_eval \
-      --pipeline_config_path /root/autodl-tmp/TorchEasyRec/configs/staging/stage2_deepfm_v1.config \
-      --model_dir /root/autodl-tmp/TorchEasyRec/models/stage2_deepfm_v8
+      --pipeline_config_path /root/autodl-tmp/TorchEasyRec/configs/staging/stage2_deepfm_v1.config
     ```
 
   - TensorBoard 监控（GPU 实例本地预览）：
@@ -47,11 +45,10 @@
 
     ```bash
     torchrun --master_addr=localhost --master_port=29511 \
-      --nnodes=1 --nproc-per-node=1 --node_rank=0 \
       -m tzrec.export \
-      --pipeline_config_path /root/autodl-tmp/TorchEasyRec/models/stage2_deepfm_v8/pipeline.config \
-      –checkpoint_path /root/autodl-tmp/TorchEasyRec/models/stage2_deepfm_v8/model.ckpt-9791 \
-      --export_dir /root/autodl-tmp/TorchEasyRec/models/stage2_deepfm_v8/export
+      --pipeline_config_path /root/autodl-tmp/TorchEasyRec/models/stage2_deepfm_v10/pipeline.config \
+      –checkpoint_path /root/autodl-tmp/TorchEasyRec/models/stage2_deepfm_v10/model.ckpt-14015 \
+      --export_dir /root/autodl-tmp/TorchEasyRec/models/stage2_deepfm_v10/export
     ```
 
   - 预测产出：
@@ -60,9 +57,9 @@
     torchrun --master_addr=localhost --master_port=29511 \
       --nnodes=1 --nproc-per-node=1 --node_rank=0 \
       -m tzrec.predict \
-      --scripted_model_path /root/autodl-tmp/TorchEasyRec/models/stage2_deepfm_v8/export \
-      --predict_input_path /root/autodl-tmp/TorchEasyRec/data/processed/20141218_predict.parquet \
-      --predict_output_path /root/autodl-tmp/TorchEasyRec/outputs/stage2_deepfm_v8/predict \
+      --scripted_model_path /root/autodl-tmp/TorchEasyRec/models/stage2_deepfm_v10/export \
+      --predict_input_path /root/autodl-tmp/TorchEasyRec/data/processed/20141218_v2_predict.parquet \
+      --predict_output_path /root/autodl-tmp/TorchEasyRec/outputs/stage2_deepfm_v10/predict \
       --reserved_columns user_id,item_id
     ```
 

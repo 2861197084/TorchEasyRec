@@ -41,6 +41,14 @@ def read_parquet_columns(path: Path, columns: Sequence[str]) -> pd.DataFrame:
     logging.info("读取数据：%s", path)
     table = pq.read_table(path, columns=list(columns))
     df = table.to_pandas()
+    # 预测结果可能包含重复的 user_id-item_id；先按概率降序去重
+    if {"user_id", "item_id", "probs"}.issubset(df.columns):
+        original_len = len(df)
+        df.sort_values(["user_id", "probs"], ascending=[True, False], inplace=True)
+        df = df.drop_duplicates(subset=["user_id", "item_id"], keep="first")
+        dropped = original_len - len(df)
+        if dropped > 0:
+            logging.info("去重 user/item 后删除了 %d 条重复记录", dropped)
     logging.info("数据规模：%d 行", len(df))
     return df
 
@@ -98,21 +106,21 @@ def evaluate_predictions(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="离线 TopK/F1 评估脚本")
     parser.add_argument(
-        "--pred-path", type=Path, default=Path("outputs/stage2_deepfm_v7/predict/part-0.parquet"), help="预测结果 parquet"
+        "--pred-path", type=Path, default=Path("outputs/stage2_deepfm_v10/predict/part-0.parquet"), help="预测结果 parquet"
     )
-    parser.add_argument("--label-path", type=Path, default=Path("data/processed/20141218_next_eval.parquet"), help="验证集 parquet")
+    parser.add_argument("--label-path", type=Path, default=Path("data/processed/20141218_v2_eval.parquet"), help="验证集 parquet")
     parser.add_argument(
         "--topk-list",
         type=int,
         nargs="*",
-        default=[1, 3, 5, 10, 20],
+        default=[],
         help="需要评估的 TopK 值列表",
     )
     parser.add_argument(
         "--threshold-list",
         type=float,
         nargs="*",
-        default=[0.005, 0.01, 0.02, 0.05],
+        default=[0.00, 0.28, 0.29 , 0.3, 0.25],
         help="需要评估的概率阈值列表",
     )
     parser.add_argument(

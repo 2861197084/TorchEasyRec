@@ -33,7 +33,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--features-dir",
         type=Path,
-        default=Path("data/processed/features-7d"),
+        default=Path("data/processed/features-14"),
         help="目录：`generate_features.py` 输出的 user/item 特征集合。",
     )
     parser.add_argument(
@@ -81,7 +81,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-prefix",
         type=str,
-        default="20141218",
+        default="20141218_v2",
         help="输出文件名前缀，例如 20141218 => 20141218_train.parquet。",
     )
     parser.add_argument(
@@ -157,10 +157,10 @@ def build_feature_union(days: Sequence[str], features_dir: Path, entity: str) ->
             SELECT
                 '{day}' AS event_day,
                 {entity}_id,
-                click_7d AS {column_prefix}_click_7d,
-                fav_7d AS {column_prefix}_fav_7d,
-                cart_7d AS {column_prefix}_cart_7d,
-                buy_7d AS {column_prefix}_buy_7d
+                click AS {column_prefix}_click,
+                fav AS {column_prefix}_fav,
+                cart AS {column_prefix}_cart,
+                buy AS {column_prefix}_buy
             FROM read_parquet('{feature_path}')
             """
         )
@@ -229,14 +229,14 @@ SELECT
     r.event_day,
     CAST(datediff('day', DATE '2014-11-18', strptime(r.event_day, '%Y%m%d')) AS BIGINT) AS event_day_index,
     CAST(r.event_hour AS BIGINT) AS event_hour,
-    uf.user_click_7d,
-    uf.user_fav_7d,
-    uf.user_cart_7d,
-    uf.user_buy_7d,
-    it.item_click_7d,
-    it.item_fav_7d,
-    it.item_cart_7d,
-    it.item_buy_7d,
+    uf.user_click,
+    uf.user_fav,
+    uf.user_cart,
+    uf.user_buy,
+    it.item_click,
+    it.item_fav,
+    it.item_cart,
+    it.item_buy,
     {final_label_select}
 FROM raw r{subset_join}
 LEFT JOIN user_feat uf
