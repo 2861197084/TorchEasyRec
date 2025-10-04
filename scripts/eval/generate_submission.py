@@ -134,13 +134,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("outputs/submissionv10.txt"),
+        default=Path("outputs/submission.txt"),
         help="输出的提交 txt 路径",
     )
     parser.add_argument(
         "--threshold",
         type=float,
-        default=0.00,
+        default=0.001,
         help="概率阈值（<=0 表示关闭），默认 0.02（与离线最优对齐）",
     )
     parser.add_argument(

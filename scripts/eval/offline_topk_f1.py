@@ -120,7 +120,7 @@ def parse_args() -> argparse.Namespace:
         "--threshold-list",
         type=float,
         nargs="*",
-        default=[0.00, 0.28, 0.29 , 0.3, 0.25],
+        default=[0.005, 0.03, 0.05 , 0.1, 0.25 ,0.3 , 0.35, 0.5],
         help="需要评估的概率阈值列表",
     )
     parser.add_argument(

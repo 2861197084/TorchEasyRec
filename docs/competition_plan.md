@@ -32,13 +32,13 @@
     ```bash
     torchrun --master_addr=localhost --master_port=29511 \
       -m tzrec.train_eval \
-      --pipeline_config_path /root/autodl-tmp/TorchEasyRec/configs/staging/stage2_deepfm_v1.config
+      --pipeline_config_path /root/autodl-tmp/TorchEasyRec/configs/staging/stage2_mind_v1.config
     ```
 
   - TensorBoard 监控（GPU 实例本地预览）：
 
     ```bash
-    tensorboard --logdir /root/autodl-tmp/TorchEasyRec/models/stage2_deepfm_v7 --port 6006
+    tensorboard --logdir /root/autodl-tmp/TorchEasyRec/models/tage2_mind_v1 --port 6006
     ```
 
   - 模型导出：
